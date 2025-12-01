@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sys/stat.h>
 #include <cstdlib>
+#include <vector>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -141,6 +142,107 @@ bool Installer::install(const std::string& moduleSpec, bool global) {
     }
     
     std::cout << "✓ Installed " << moduleName << "@" << versionToInstall << " to " << installDir << std::endl;
+    
+    // If we are in a Neutron project (local install), register the dependency in .quark
+    if (!global) {
+        struct stat st;
+        if (stat(".quark", &st) == 0) {
+            std::cout << "Updating .quark configuration..." << std::endl;
+            
+            // Read .quark file
+            std::ifstream inFile(".quark");
+            std::vector<std::string> lines;
+            std::string line;
+            bool inDependencies = false;
+            bool depFound = false;
+            std::string depEntry = moduleName + "=" + versionToInstall;
+            
+            while (std::getline(inFile, line)) {
+                // Trim line
+                std::string trimmed = line;
+                size_t first = trimmed.find_first_not_of(" \t\r\n");
+                if (first != std::string::npos) {
+                    size_t last = trimmed.find_last_not_of(" \t\r\n");
+                    trimmed = trimmed.substr(first, (last - first + 1));
+                } else {
+                    trimmed = "";
+                }
+                
+                if (trimmed == "[dependencies]") {
+                    inDependencies = true;
+                    lines.push_back(line);
+                    continue;
+                }
+                
+                if (trimmed.length() > 0 && trimmed[0] == '[') {
+                    inDependencies = false;
+                }
+                
+                if (inDependencies && trimmed.find(moduleName + "=") == 0) {
+                    // Update existing dependency
+                    lines.push_back(depEntry);
+                    depFound = true;
+                    std::cout << "Updated dependency: " << moduleName << " -> " << versionToInstall << std::endl;
+                } else {
+                    lines.push_back(line);
+                }
+            }
+            inFile.close();
+            
+            // If dependency not found, add it
+            if (!depFound) {
+                // Check if [dependencies] section exists
+                bool hasDepSection = false;
+                for (const auto& l : lines) {
+                    if (l.find("[dependencies]") != std::string::npos) {
+                        hasDepSection = true;
+                        break;
+                    }
+                }
+                
+                if (!hasDepSection) {
+                    lines.push_back("");
+                    lines.push_back("[dependencies]");
+                }
+                
+                // Find where to insert (at end of dependencies section or end of file)
+                if (hasDepSection) {
+                    // Find end of dependencies section
+                    size_t insertPos = lines.size();
+                    bool inDep = false;
+                    for (size_t i = 0; i < lines.size(); i++) {
+                        std::string l = lines[i];
+                        if (l.find("[dependencies]") != std::string::npos) {
+                            inDep = true;
+                            continue;
+                        }
+                        if (inDep && l.length() > 0 && l[0] == '[') {
+                            insertPos = i; // Insert before next section
+                            break;
+                        }
+                    }
+                    
+                    // Insert before insertPos
+                    if (insertPos < lines.size()) {
+                        lines.insert(lines.begin() + insertPos, depEntry);
+                    } else {
+                        lines.push_back(depEntry);
+                    }
+                } else {
+                    lines.push_back(depEntry);
+                }
+                std::cout << "Added dependency: " << moduleName << " @ " << versionToInstall << std::endl;
+            }
+            
+            // Write back to .quark
+            std::ofstream outFile(".quark");
+            for (const auto& l : lines) {
+                outFile << l << "\n";
+            }
+            outFile.close();
+        }
+    }
+    
     return true;
 }
 
