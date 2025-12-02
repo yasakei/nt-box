@@ -5,8 +5,59 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <map>
+
+namespace fs = std::filesystem;
 
 using namespace box;
+
+std::map<std::string, std::string> parseQuarkDependencies(const std::string& path) {
+    std::map<std::string, std::string> deps;
+    std::ifstream file(path);
+    std::string line;
+    bool inDependencies = false;
+
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+        if (line.empty() || line[0] == '#') continue;
+
+        if (line == "[dependencies]") {
+            inDependencies = true;
+            continue;
+        } else if (line.front() == '[' && line.back() == ']') {
+            inDependencies = false;
+            continue;
+        }
+
+        if (inDependencies) {
+            size_t eq = line.find('=');
+            if (eq != std::string::npos) {
+                std::string name = line.substr(0, eq);
+                std::string version = line.substr(eq + 1);
+                
+                // Trim key/value
+                name.erase(0, name.find_first_not_of(" \t\r\n"));
+                name.erase(name.find_last_not_of(" \t\r\n") + 1);
+                version.erase(0, version.find_first_not_of(" \t\r\n"));
+                version.erase(version.find_last_not_of(" \t\r\n") + 1);
+                
+                // Remove quotes if present
+                if (version.size() >= 2 && version.front() == '"' && version.back() == '"') {
+                    version = version.substr(1, version.size() - 2);
+                }
+
+                deps[name] = version;
+            }
+        }
+    }
+    return deps;
+}
 
 void printUsage() {
     std::cout << "Box - Neutron Package Manager v1.0.0\n" << std::endl;
@@ -59,9 +110,46 @@ int main(int argc, char* argv[]) {
     
     if (command == "install") {
         if (argc < 3) {
-            std::cerr << "Error: Module name required" << std::endl;
-            std::cerr << "Usage: box install <module>" << std::endl;
-            return 1;
+            // Try to find .quark file
+            std::string quarkFile;
+            bool found = false;
+            for (const auto& entry : fs::directory_iterator(".")) {
+                if (entry.path().extension() == ".quark") {
+                    quarkFile = entry.path().string();
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found) {
+                std::cerr << "Error: Module name required or no .quark file found" << std::endl;
+                std::cerr << "Usage: box install <module>" << std::endl;
+                return 1;
+            }
+
+            std::cout << "Found project file: " << quarkFile << std::endl;
+            auto deps = parseQuarkDependencies(quarkFile);
+            if (deps.empty()) {
+                std::cout << "No dependencies found in " << quarkFile << std::endl;
+                return 0;
+            }
+
+            Installer installer;
+            int successCount = 0;
+            for (const auto& [name, version] : deps) {
+                std::string installSpec = name;
+                if (version != "*" && !version.empty()) {
+                    installSpec += "@" + version;
+                }
+                
+                if (installer.install(installSpec, false)) {
+                    successCount++;
+                } else {
+                    std::cerr << "Failed to install " << name << std::endl;
+                }
+            }
+            
+            return (successCount == deps.size()) ? 0 : 1;
         }
         
         std::string moduleName = argv[2];
