@@ -27,6 +27,19 @@ public:
                      const std::string& version);
 
     /**
+     * Build module from source (git clone)
+     * @param moduleName Name of the module to build
+     * @param sourcePath Path to cloned module source directory
+     * @param installDir Installation directory
+     * @param version Module version to build
+     * @return true if successful
+     */
+    bool buildFromSource(const std::string& moduleName,
+                         const std::string& sourcePath,
+                         const std::string& installDir,
+                         const std::string& version);
+
+    /**
      * Build Neutron source module (future feature)
      * @param moduleName Name of the module to build
      * @param sourcePath Path to module source

@@ -1,10 +1,12 @@
 #include "installer.h"
 #include "platform.h"
+#include "builder.h"
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>
 #include <cstdlib>
 #include <vector>
+#include <filesystem>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -88,45 +90,143 @@ bool Installer::install(const std::string& moduleSpec, bool global) {
     
     VersionMetadata versionMeta = metadata.versions[versionToInstall];
     
-    std::string binaryURL;
-    if (Platform::isLinux()) {
-        binaryURL = versionMeta.entryLinux;
-    } else if (Platform::isWindows()) {
-        binaryURL = versionMeta.entryWin;
-    } else if (Platform::isMacOS()) {
-        binaryURL = versionMeta.entryMac;
-    }
-    
-    if (binaryURL.empty()) {
-        std::cerr << "No binary available for " << Platform::getOSString() << std::endl;
-        return false;
-    }
-    
+    // Create install directory
     std::string installDir = getInstallDir(global) + "/" + moduleName;
     if (!ensureDirectory(installDir)) {
         std::cerr << "Failed to create directory: " << installDir << std::endl;
         return false;
     }
-    
-    std::cout << "Downloading from " << binaryURL << "..." << std::endl;
-    std::string binaryData = registry.download(binaryURL);
-    if (binaryData.empty()) {
-        std::cerr << "Failed to download module" << std::endl;
-        return false;
-    }
-    
-    std::string outputFile = installDir + "/" + moduleName + Platform::getLibraryExtension();
-    std::ofstream outFile(outputFile, std::ios::binary);
-    if (!outFile) {
-        std::cerr << "Failed to create file: " << outputFile << std::endl;
-        return false;
-    }
-    outFile.write(binaryData.data(), binaryData.size());
-    outFile.close();
-    
-#ifndef _WIN32
-    chmod(outputFile.c_str(), 0755);
+
+    // Check if git repository is available for this version
+    std::string repoURL = versionMeta.git.url;
+    std::string repoRef = versionMeta.git.ref;
+
+    if (repoURL.empty()) {
+        std::cerr << "No git repository available for module: " << moduleName << std::endl;
+        std::cerr << "Falling back to binary download..." << std::endl;
+
+        // Fallback to previous behavior if no git repo
+        std::string binaryURL;
+        if (Platform::isLinux()) {
+            binaryURL = versionMeta.entryLinux;
+        } else if (Platform::isWindows()) {
+            binaryURL = versionMeta.entryWin;
+        } else if (Platform::isMacOS()) {
+            binaryURL = versionMeta.entryMac;
+        }
+
+        if (binaryURL.empty()) {
+            std::cerr << "No binary or git repository available for " << Platform::getOSString() << std::endl;
+            return false;
+        }
+
+        std::cout << "Downloading from " << binaryURL << "..." << std::endl;
+        std::string binaryData = registry.download(binaryURL);
+        if (binaryData.empty()) {
+            std::cerr << "Failed to download module" << std::endl;
+            return false;
+        }
+
+        std::string outputFile = installDir + "/" + moduleName + Platform::getLibraryExtension();
+        std::ofstream outFile(outputFile, std::ios::binary);
+        if (!outFile) {
+            std::cerr << "Failed to create file: " << outputFile << std::endl;
+            return false;
+        }
+        outFile.write(binaryData.data(), binaryData.size());
+        outFile.close();
+
+    #ifndef _WIN32
+        chmod(outputFile.c_str(), 0755);
+    #endif
+    } else {
+        // Create a unique temporary directory for building
+        std::string tempBaseDir = installDir + "/.tmp";
+        int attempt = 0;
+        std::string uniqueTempDir;
+
+        // Find a unique temporary directory name
+        while (attempt < 10) {
+            uniqueTempDir = tempBaseDir + std::to_string(attempt);
+            if (!std::filesystem::exists(uniqueTempDir)) {
+                if (!ensureDirectory(uniqueTempDir)) {
+                    std::cerr << "Failed to create temp directory: " << uniqueTempDir << std::endl;
+                    return false;
+                }
+                break; // Found unique directory and created it
+            }
+            attempt++;
+        }
+
+        if (attempt >= 10) {
+            std::cerr << "Failed to create unique temp directory" << std::endl;
+            return false;
+        }
+
+        // Clone the repository to the unique temp directory
+        std::cout << "Cloning from " << repoURL << "..." << std::endl;
+        std::string cloneCmd;
+#ifdef _WIN32
+        cloneCmd = "cd \"" + uniqueTempDir + "\" && git clone \"" + repoURL + "\" ./repo 2>nul";
+#else
+        cloneCmd = "cd \"" + uniqueTempDir + "\" && git clone \"" + repoURL + "\" ./repo";
 #endif
+        int cloneResult = system(cloneCmd.c_str());
+        if (cloneResult != 0) {
+            std::cerr << "Failed to clone repository" << std::endl;
+            // Clean up temp directory
+            std::string cleanupCmd;
+#ifdef _WIN32
+            cleanupCmd = "rmdir /s /q \"" + uniqueTempDir + "\" 2>nul";
+#else
+            cleanupCmd = "rm -rf \"" + uniqueTempDir + "\"";
+#endif
+            system(cleanupCmd.c_str());
+            return false;
+        }
+
+        // Navigate to the repo directory and checkout the specific version if provided
+        std::string repoDir = uniqueTempDir + "/repo";
+        if (!repoRef.empty()) {
+            std::string checkoutCmd;
+#ifdef _WIN32
+            checkoutCmd = "cd \"" + repoDir + "\" && git checkout \"" + repoRef + "\" 2>nul";
+#else
+            checkoutCmd = "cd \"" + repoDir + "\" && git checkout \"" + repoRef + "\"";
+#endif
+            int checkoutResult = system(checkoutCmd.c_str());
+            if (checkoutResult != 0) {
+                std::cerr << "Failed to checkout specific version: " << repoRef << std::endl;
+                // Clean up temp directory
+                std::string cleanupCmd;
+#ifdef _WIN32
+                cleanupCmd = "rmdir /s /q \"" + uniqueTempDir + "\" 2>nul";
+#else
+                cleanupCmd = "rm -rf \"" + uniqueTempDir + "\"";
+#endif
+                system(cleanupCmd.c_str());
+                return false;
+            }
+        }
+
+        // Build the module using the builder
+        Builder builder;
+        bool buildSuccess = builder.buildFromSource(moduleName, repoDir, installDir, versionToInstall);
+
+        // Clean up the temporary directory regardless of build success/failure
+        std::string cleanupCmd;
+#ifdef _WIN32
+        cleanupCmd = "rmdir /s /q \"" + uniqueTempDir + "\" 2>nul";
+#else
+        cleanupCmd = "rm -rf \"" + uniqueTempDir + "\"";
+#endif
+        system(cleanupCmd.c_str());
+
+        if (!buildSuccess) {
+            std::cerr << "Failed to build module from source" << std::endl;
+            return false;
+        }
+    }
     
     std::string metadataFile = installDir + "/metadata.json";
     std::ofstream metaFile(metadataFile);

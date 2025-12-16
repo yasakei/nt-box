@@ -10,11 +10,20 @@ namespace box {
 /**
  * Version-specific metadata
  */
+struct GitMetadata {
+    std::string url;
+    std::string ref;  // branch, tag, or commit hash
+};
+
+/**
+ * Version-specific metadata
+ */
 struct VersionMetadata {
     std::string description;
     std::string entryLinux;
     std::string entryWin;
     std::string entryMac;
+    GitMetadata git;
     std::map<std::string, std::string> deps;
 };
 

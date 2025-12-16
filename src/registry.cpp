@@ -3,6 +3,8 @@
 #include <iostream>
 #include <sstream>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 // For HTTP requests - will need to link with curl or similar
 #ifdef _WIN32
@@ -22,12 +24,26 @@ static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::stri
 }
 
 Registry::Registry() {
+    // Use online registry by default
     registryURL = "https://raw.githubusercontent.com/neutron-modules/nur/refs/heads/main";
 }
 
 std::string Registry::download(const std::string& url) {
     std::string response;
-    
+
+    // Check if it's a local file URL
+    if (url.substr(0, 7) == "file://") {
+        std::string localPath = url.substr(7); // Remove "file://" prefix
+        std::ifstream file(localPath);
+        if (file.is_open()) {
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            response = buffer.str();
+            file.close();
+        }
+        return response;
+    }
+
 #ifdef _WIN32
     // Windows implementation using WinINet
     HINTERNET hInternet = InternetOpenA("Box/1.0", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
@@ -52,7 +68,7 @@ std::string Registry::download(const std::string& url) {
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-        
+
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
             std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
@@ -61,20 +77,26 @@ std::string Registry::download(const std::string& url) {
         curl_easy_cleanup(curl);
     }
 #endif
-    
+
     return response;
 }
 
 bool Registry::fetchIndex() {
-    std::string indexURL = registryURL + "/nur.json";
+    std::string indexURL;
+    if (registryURL.substr(0, 7) == "file://") {
+        indexURL = registryURL + "/nur.json";
+    } else {
+        indexURL = registryURL + "/nur.json";
+    }
+
     std::cout << "Fetching NUR index from " << indexURL << "..." << std::endl;
-    
+
     std::string content = download(indexURL);
     if (content.empty()) {
         std::cerr << "Failed to fetch NUR index" << std::endl;
         return false;
     }
-    
+
     return parseIndex(content);
 }
 
@@ -136,7 +158,21 @@ bool Registry::parseIndex(const std::string& content) {
 std::string Registry::getModuleURL(const std::string& moduleName) {
     auto it = moduleIndex.find(moduleName);
     if (it != moduleIndex.end()) {
-        return it->second;
+        std::string modulePath = it->second;
+        // If this is a local registry, convert relative paths to absolute
+        if (registryURL.substr(0, 7) == "file://") {
+            if (modulePath[0] == '.') {
+                // Convert relative path like "./modules/base64.json" to absolute path
+                std::string basePath = registryURL.substr(7); // Remove "file://"
+                modulePath = basePath + modulePath.substr(1); // Remove leading "."
+            }
+        } else {
+            // For online registry, handle relative paths as before
+            if (modulePath[0] == '.') {
+                modulePath = registryURL + modulePath.substr(1);
+            }
+        }
+        return modulePath;
     }
     return "";
 }
@@ -161,30 +197,31 @@ ModuleMetadata Registry::fetchModuleMetadata(const std::string& moduleName) {
     
     // Parse module metadata JSON with versions
     // Format: {"name":"base64","latest":"1.0.1","versions":{"1.0.0":{...},"1.0.1":{...}}}
-    
+
     auto extractValue = [&content](const std::string& key, size_t startPos = 0) -> std::string {
         std::string searchKey = "\"" + key + "\"";
         size_t pos = content.find(searchKey, startPos);
         if (pos == std::string::npos) return "";
-        
+
         size_t colonPos = content.find(':', pos);
         if (colonPos == std::string::npos) return "";
-        
+
         size_t valueStart = content.find('"', colonPos);
         if (valueStart == std::string::npos) return "";
-        
+
         size_t valueEnd = content.find('"', valueStart + 1);
         if (valueEnd == std::string::npos) return "";
-        
+
         return content.substr(valueStart + 1, valueEnd - valueStart - 1);
     };
-    
+
+    // Extract top-level metadata
     metadata.description = extractValue("description");
     metadata.author = extractValue("author");
     metadata.license = extractValue("license");
     metadata.repository = extractValue("repository");
     metadata.latest = extractValue("latest");
-    
+
     // Parse versions object
     size_t versionsPos = content.find("\"versions\"");
     if (versionsPos != std::string::npos) {
@@ -193,7 +230,7 @@ ModuleMetadata Registry::fetchModuleMetadata(const std::string& moduleName) {
             // Find each version key
             size_t pos = versionObjStart + 1;
             size_t endOfVersions = content.length();
-            
+
             // Find the closing brace for versions object (simple brace counting)
             int braceCount = 1;
             for (size_t i = versionObjStart + 1; i < content.length() && braceCount > 0; i++) {
@@ -206,28 +243,38 @@ ModuleMetadata Registry::fetchModuleMetadata(const std::string& moduleName) {
                     }
                 }
             }
-            
+
             while (pos < endOfVersions) {
                 size_t versionKeyStart = content.find('"', pos);
                 if (versionKeyStart == std::string::npos || versionKeyStart >= endOfVersions) break;
-                
+
                 size_t versionKeyEnd = content.find('"', versionKeyStart + 1);
                 if (versionKeyEnd == std::string::npos) break;
-                
+
                 std::string versionNum = content.substr(versionKeyStart + 1, versionKeyEnd - versionKeyStart - 1);
-                
+
                 // Parse this version's metadata
                 size_t versionObjStart2 = content.find('{', versionKeyEnd);
                 if (versionObjStart2 == std::string::npos) break;
-                
+
                 VersionMetadata versionMeta;
                 versionMeta.description = extractValue("description", versionObjStart2);
                 versionMeta.entryLinux = extractValue("entry-linux", versionObjStart2);
                 versionMeta.entryWin = extractValue("entry-win", versionObjStart2);
                 versionMeta.entryMac = extractValue("entry-mac", versionObjStart2);
-                
+
+                // Parse git metadata if present
+                size_t gitPos = content.find("\"git\"", versionObjStart2);
+                if (gitPos != std::string::npos && gitPos < content.find('}', versionObjStart2)) {
+                    size_t gitObjStart = content.find('{', gitPos);
+                    if (gitObjStart != std::string::npos) {
+                        versionMeta.git.url = extractValue("url", gitObjStart);
+                        versionMeta.git.ref = extractValue("ref", gitObjStart);
+                    }
+                }
+
                 metadata.versions[versionNum] = versionMeta;
-                
+
                 // Move to next version - find matching closing brace
                 int versionBraceCount = 1;
                 pos = versionObjStart2 + 1;

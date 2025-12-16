@@ -132,31 +132,52 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
     std::string compiler = getCompiler();
     std::vector<std::string> linkerFlags = getLinkerFlags();
     std::vector<std::string> includePaths = getIncludePaths();
-    
+
+    // Find the actual source file path for buildNative
+    std::string nativeCppPath = sourcePath + "/native.cpp";
+    std::ifstream sourceFile(nativeCppPath);
+    if (!sourceFile.good()) {
+        // Try alternative source file locations
+        std::vector<std::string> potentialSources = {
+            sourcePath + "/src/native.cpp",
+            sourcePath + "/src/main.cpp",
+            sourcePath + "/source/native.cpp",
+            sourcePath + "/lib/native.cpp"
+        };
+
+        for (const auto& potentialSource : potentialSources) {
+            std::ifstream altSource(potentialSource);
+            if (altSource.good()) {
+                nativeCppPath = potentialSource;
+                break;
+            }
+        }
+    }
+
     std::string command;
-    
+
     // Check if we're using MSVC or MINGW64
     bool isMSVC = (Platform::isWindows() && compiler == "cl");
-    
+
     if (isMSVC) {
         // MSVC command
         command = compiler + " ";
         command += "/std:c++17 ";
-        
+
         // Add include paths
         for (const auto& path : includePaths) {
             command += "/I\"" + path + "\" ";
         }
-        
+
         // Source file
-        command += "\"" + sourcePath + "/native.cpp\" ";
-        
+        command += "\"" + nativeCppPath + "\" ";
+
         // Linker flags
         command += "/LD /MD ";
-        
+
         // Output
         command += "/Fe:\"" + outputPath + "\" ";
-        
+
         // Link against neutron runtime
         std::string neutronDir = findNeutronDir();
         if (!neutronDir.empty()) {
@@ -167,18 +188,18 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
         command = compiler + " ";
         command += "-std=c++17 ";
         command += "-fPIC -shared ";
-        
+
         // Add include paths
         for (const auto& path : includePaths) {
             command += "-I\"" + path + "\" ";
         }
-        
+
         // Source file
-        command += "\"" + sourcePath + "/native.cpp\" ";
-        
+        command += "\"" + nativeCppPath + "\" ";
+
         // Output
         command += "-o \"" + outputPath + "\" ";
-        
+
         // Link against neutron runtime if found
         std::string neutronDir = findNeutronDir();
         if (!neutronDir.empty()) {
@@ -191,7 +212,7 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
             command += "-lneutron_runtime ";
         }
     }
-    
+
     return command;
 }
 
@@ -277,6 +298,66 @@ bool Builder::createMetadata(const std::string& moduleName,
     
     metadataFile.close();
     return true;
+}
+
+bool Builder::buildFromSource(const std::string& moduleName,
+                             const std::string& sourcePath,
+                             const std::string& installDir,
+                             const std::string& version) {
+    std::cout << "Building module " << moduleName << " from source..." << std::endl;
+    std::cout << "Version: " << version << std::endl;
+    std::cout << "Platform: " << Platform::getOSString() << std::endl;
+
+    // Check if source exists and has required files
+    std::string nativeCpp = sourcePath + "/native.cpp";
+    std::ifstream sourceFile(nativeCpp);
+    if (!sourceFile.good()) {
+        std::cerr << "Error: Source file not found: " << nativeCpp << std::endl;
+
+        // Try alternative source file names for native modules
+        std::vector<std::string> potentialSources = {
+            sourcePath + "/src/native.cpp",
+            sourcePath + "/src/main.cpp",
+            sourcePath + "/source/native.cpp",
+            sourcePath + "/lib/native.cpp"
+        };
+
+        bool foundSource = false;
+        for (const auto& potentialSource : potentialSources) {
+            std::ifstream altSource(potentialSource);
+            if (altSource.good()) {
+                nativeCpp = potentialSource;
+                foundSource = true;
+                std::cout << "Found source at: " << nativeCpp << std::endl;
+                break;
+            }
+        }
+
+        if (!foundSource) {
+            std::cerr << "Error: No native source file found in the repository" << std::endl;
+            return false;
+        }
+    }
+
+    // Generate output path: install_dir/{module_name}.{ext}
+    std::string outputPath = installDir + "/" + moduleName + Platform::getLibraryExtension();
+
+    // Generate and execute build command
+    std::string buildCommand = generateBuildCommand(moduleName, sourcePath, outputPath);
+
+    if (executeCommand(buildCommand)) {
+        std::cout << "✓ Built: " << outputPath << std::endl;
+
+        // Create metadata.json
+        if (createMetadata(moduleName, version, installDir)) {
+            std::cout << "✓ Created: " << installDir << "/metadata.json" << std::endl;
+        }
+
+        return true;
+    } else {
+        std::cerr << "✗ Build failed" << std::endl;
+        return false;
+    }
 }
 
 bool Builder::buildNeutron(const std::string& moduleName,
