@@ -44,16 +44,13 @@ std::string Installer::getInstallDir(bool global) {
 }
 
 bool Installer::ensureDirectory(const std::string& path) {
-    struct stat st;
-    if (stat(path.c_str(), &st) == 0) return true;
-    
-#ifdef _WIN32
-    std::string command = "mkdir \"" + path + "\" 2>nul";
-    return system(command.c_str()) == 0 || stat(path.c_str(), &st) == 0;
-#else
-    std::string command = "mkdir -p \"" + path + "\"";
-    return system(command.c_str()) == 0;
-#endif
+    try {
+        std::filesystem::create_directories(path);
+        return true;
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Error creating directory " << path << ": " << e.what() << std::endl;
+        return false;
+    }
 }
 
 bool Installer::install(const std::string& moduleSpec, bool global) {
@@ -358,19 +355,14 @@ bool Installer::uninstall(const std::string& moduleName, bool global) {
     
     std::cout << "Uninstalling " << moduleName << "..." << std::endl;
     
-#ifdef _WIN32
-    std::string command = "rmdir /s /q \"" + moduleDir + "\"";
-#else
-    std::string command = "rm -rf \"" + moduleDir + "\"";
-#endif
-    
-    if (system(command.c_str()) == 0) {
+    try {
+        std::filesystem::remove_all(moduleDir);
         std::cout << "✓ Successfully uninstalled " << moduleName << std::endl;
         return true;
+    } catch (const std::filesystem::filesystem_error& e) {
+        std::cerr << "Failed to uninstall " << moduleName << ": " << e.what() << std::endl;
+        return false;
     }
-    
-    std::cerr << "Failed to uninstall " << moduleName << std::endl;
-    return false;
 }
 
 bool Installer::update(const std::string& moduleName, bool global) {

@@ -302,7 +302,7 @@ int main(int argc, char* argv[]) {
         
         if (buildType == "native") {
             std::string sourcePath = "./" + moduleName;
-            std::string outputDir = "./box-modules";
+            std::string outputDir = "./.box/modules";
             
             if (builder.buildNative(moduleName, sourcePath, outputDir, version)) {
                 std::cout << "✓ Successfully built " << moduleName << " v" << version << std::endl;

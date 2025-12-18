@@ -17,14 +17,7 @@ Builder::Builder() {
 
 std::string Builder::getCompiler() {
     if (Platform::isWindows()) {
-        // Check if we're in MSYS2/MINGW64 environment
-        const char* msystem = getenv("MSYSTEM");
-        if (msystem && (std::string(msystem).find("MINGW") != std::string::npos || 
-                       std::string(msystem).find("MSYS") != std::string::npos)) {
-            // Use g++ in MSYS2/MINGW64
-            return "g++";
-        }
-        // Otherwise use MSVC
+        // Use MSVC on Windows
         return "cl";
     } else {
         // Check for clang++ or g++
@@ -40,18 +33,9 @@ std::vector<std::string> Builder::getLinkerFlags() {
     std::vector<std::string> flags;
     
     if (Platform::isWindows()) {
-        // Check if we're using MINGW64/MSYS2
-        const char* msystem = getenv("MSYSTEM");
-        if (msystem && (std::string(msystem).find("MINGW") != std::string::npos || 
-                       std::string(msystem).find("MSYS") != std::string::npos)) {
-            // MINGW64/MSYS2 uses GCC flags
-            flags.push_back("-shared");
-            flags.push_back("-fPIC");
-        } else {
-            // MSVC flags
-            flags.push_back("/LD");  // Create DLL
-            flags.push_back("/MD");  // Multithreaded DLL runtime
-        }
+        // MSVC flags
+        flags.push_back("/LD");  // Create DLL
+        flags.push_back("/MD");  // Multithreaded DLL runtime
     } else if (Platform::isMacOS()) {
         flags.push_back("-shared");
         flags.push_back("-fPIC");
@@ -71,7 +55,7 @@ std::vector<std::string> Builder::getIncludePaths() {
     std::string neutronDir = findNeutronDir();
     
     if (!neutronDir.empty()) {
-        paths.push_back(neutronDir + "/include");
+        paths.push_back(neutronDir + "/include/core");
     }
     
     // Add standard locations
@@ -116,7 +100,7 @@ std::string Builder::findNeutronDir() {
     candidates.push_back("..");
     
     for (const auto& dir : candidates) {
-        std::string testPath = dir + "/include/neutron.h";
+        std::string testPath = dir + "/include/core/neutron.h";
         std::ifstream test(testPath);
         if (test.good()) {
             return dir;
@@ -162,7 +146,7 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
     if (isMSVC) {
         // MSVC command
         command = compiler + " ";
-        command += "/std:c++17 ";
+        command += "/nologo /std:c++17 /EHsc ";
 
         // Add include paths
         for (const auto& path : includePaths) {
@@ -172,17 +156,27 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
         // Source file
         command += "\"" + nativeCppPath + "\" ";
 
+        // Include shim that dynamically resolves Neutron API at runtime so native
+        // modules don't have to link against an import library on every platform
+        command += "\"nt-box/src/native_shim.cpp\" ";
+
         // Linker flags
         command += "/LD /MD ";
 
         // Output
         command += "/Fe:\"" + outputPath + "\" ";
 
-        // Link against neutron runtime
-        std::string neutronDir = findNeutronDir();
-        if (!neutronDir.empty()) {
-            command += "/link /LIBPATH:\"" + neutronDir + "/build\" neutron_runtime.lib ";
+        // Check for module definition file
+        std::string defFile = sourcePath + "/" + moduleName + ".def";
+        std::ifstream defCheck(defFile);
+        if (defCheck.good()) {
+            command += "/link /DEF:\"" + defFile + "\" ";
+        } else {
+            command += "/link ";
         }
+
+        // Native modules use the shim to dynamically resolve Neutron API at runtime
+        // No need to link against any import library
     } else {
         // GCC/Clang command (Linux, macOS, MINGW64)
         command = compiler + " ";
@@ -196,6 +190,8 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
 
         // Source file
         command += "\"" + nativeCppPath + "\" ";
+        // Include shim to resolve Neutron API at runtime on POSIX
+        command += "\"nt-box/src/native_shim.cpp\" ";
 
         // Output
         command += "-o \"" + outputPath + "\" ";
@@ -217,7 +213,62 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
 }
 
 bool Builder::executeCommand(const std::string& command) {
-    std::cout << "Executing: " << command << std::endl;
+    #ifdef _WIN32
+    if (command.find("cl ") == 0 || command.find("cl.exe") != std::string::npos) {
+        // Check if cl.exe is in PATH
+        int checkResult = system("where cl >nul 2>&1");
+        if (checkResult != 0) {
+            // cl.exe not in PATH, try to find and use vcvarsall.bat
+            
+            // Common Visual Studio installation paths
+            std::vector<std::string> vsPaths = {
+                "C:\\Program Files\\Microsoft Visual Studio\\18\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\18\\Professional\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\18\\Enterprise\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\18\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\18\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2025\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2025\\Professional\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2025\\Enterprise\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2025\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\2025\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\2025\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2019\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat",
+                "C:\\Program Files\\Microsoft Visual Studio\\2019\\BuildTools\\VC\\Auxiliary\\Build\\vcvarsall.bat"
+            };
+            
+            std::string vcvarsPath;
+            for (const auto& path : vsPaths) {
+                std::ifstream test(path);
+                if (test.good()) {
+                    vcvarsPath = path;
+                    break;
+                }
+            }
+            
+            if (!vcvarsPath.empty()) {
+                // Found vcvarsall.bat, wrap command with it (suppress setup output)
+                std::string wrappedCmd = "cmd /c \"\"" + vcvarsPath + "\" x64 >nul 2>&1 && " + command + "\"";
+                int result = system(wrappedCmd.c_str());
+                return result == 0;
+            } else {
+                // Could not find MSVC installation
+                std::cerr << "\n✗ Error: MSVC compiler not found\n" << std::endl;
+                std::cerr << "Please install Microsoft C++ Build Tools." << std::endl;
+                std::cerr << "Download: https://aka.ms/vs/17/release/vs_BuildTools.exe" << std::endl;
+                return false;
+            }
+        }
+    }
+    #endif
+    
     int result = system(command.c_str());
     return result == 0;
 }
@@ -260,6 +311,8 @@ bool Builder::buildNative(const std::string& moduleName,
     
     // Generate and execute build command
     std::string buildCommand = generateBuildCommand(baseModuleName, sourcePath, outputPath);
+    
+    std::cerr << "Command: " << buildCommand << std::endl;
     
     if (executeCommand(buildCommand)) {
         std::cout << "✓ Built: " << outputPath << std::endl;
@@ -314,9 +367,8 @@ bool Builder::buildFromSource(const std::string& moduleName,
     if (!sourceFile.good()) {
         std::cerr << "Error: Source file not found: " << nativeCpp << std::endl;
 
-        // Try alternative source file names for native modules
+        // Try alternatives
         std::vector<std::string> potentialSources = {
-            sourcePath + "/src/native.cpp",
             sourcePath + "/src/main.cpp",
             sourcePath + "/source/native.cpp",
             sourcePath + "/lib/native.cpp"

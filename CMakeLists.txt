@@ -8,6 +8,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Platform detection
 if(WIN32)
     add_definitions(-DPLATFORM_WINDOWS)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+    if(MSVC)
+        # /W2 for cleaner logs, suppress some common annoyance warnings
+        add_compile_options(/W2 /utf-8 /EHsc /wd4100 /wd4834 /wd4244 /wd4267)
+    endif()
 elseif(APPLE)
     add_definitions(-DPLATFORM_MACOS)
 elseif(UNIX)
