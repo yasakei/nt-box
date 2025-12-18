@@ -80,6 +80,11 @@ private:
     std::string findNeutronDir();
 
     /**
+     * Find native_shim.cpp file
+     */
+    std::string findNativeShim();
+
+    /**
      * Generate build command
      */
     std::string generateBuildCommand(const std::string& moduleName,

@@ -110,6 +110,39 @@ std::string Builder::findNeutronDir() {
     return "";
 }
 
+std::string Builder::findNativeShim() {
+    // Check standard locations for native_shim.cpp
+    std::vector<std::string> candidates;
+    
+    // First check relative to current directory (for development)
+    candidates.push_back("nt-box/src/native_shim.cpp");
+    candidates.push_back("../nt-box/src/native_shim.cpp");
+    
+    // Check in Neutron installation directory
+    std::string neutronDir = findNeutronDir();
+    if (!neutronDir.empty()) {
+        candidates.push_back(neutronDir + "/nt-box/src/native_shim.cpp");
+    }
+    
+    // Check standard installation locations
+#ifdef _WIN32
+    candidates.push_back("C:\\Program Files\\Neutron\\nt-box\\src\\native_shim.cpp");
+    candidates.push_back("C:\\Neutron\\nt-box\\src\\native_shim.cpp");
+#else
+    candidates.push_back("/usr/local/neutron/nt-box/src/native_shim.cpp");
+    candidates.push_back("/opt/neutron/nt-box/src/native_shim.cpp");
+#endif
+    
+    for (const auto& path : candidates) {
+        std::ifstream test(path);
+        if (test.good()) {
+            return path;
+        }
+    }
+    
+    return "";
+}
+
 std::string Builder::generateBuildCommand(const std::string& moduleName,
                                          const std::string& sourcePath,
                                          const std::string& outputPath) {
@@ -158,7 +191,12 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
 
         // Include shim that dynamically resolves Neutron API at runtime so native
         // modules don't have to link against an import library on every platform
-        command += "\"nt-box/src/native_shim.cpp\" ";
+        std::string shimPath = findNativeShim();
+        if (shimPath.empty()) {
+            std::cerr << "Error: Could not find native_shim.cpp" << std::endl;
+            return "";
+        }
+        command += "\"" + shimPath + "\" ";
 
         // Linker flags
         command += "/LD /MD ";
@@ -191,7 +229,12 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
         // Source file
         command += "\"" + nativeCppPath + "\" ";
         // Include shim to resolve Neutron API at runtime on POSIX
-        command += "\"nt-box/src/native_shim.cpp\" ";
+        std::string shimPath = findNativeShim();
+        if (shimPath.empty()) {
+            std::cerr << "Error: Could not find native_shim.cpp" << std::endl;
+            return "";
+        }
+        command += "\"" + shimPath + "\" ";
 
         // Output
         command += "-o \"" + outputPath + "\" ";
