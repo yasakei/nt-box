@@ -7,7 +7,7 @@
 
 // Tell the header we're building Neutron (even though we're not) to avoid dllimport
 #define BUILDING_NEUTRON
-#include "../../include/core/neutron.h"
+#include <core/neutron.h>
 #undef BUILDING_NEUTRON
 
 // Now redefine NEUTRON_API as empty for our function definitions

@@ -56,12 +56,25 @@ std::vector<std::string> Builder::getIncludePaths() {
     std::string neutronDir = findNeutronDir();
     
     if (!neutronDir.empty()) {
+        paths.push_back(neutronDir + "/include");
         paths.push_back(neutronDir + "/include/core");
     }
     
-    // Add standard locations
+    // Check standard system installation paths
+#ifdef _WIN32
+    paths.push_back("C:\\Program Files\\Neutron\\include");
+    paths.push_back("C:\\Program Files\\Neutron\\include\\core");
+#else
+    paths.push_back("/usr/local/include");
+    paths.push_back("/usr/local/include/core");
+    paths.push_back("/usr/include");
+    paths.push_back("/usr/include/core");
+#endif
+    
+    // Add relative locations for development
     paths.push_back("../include");
     paths.push_back("../../include");
+    paths.push_back("include");
     
     return paths;
 }
