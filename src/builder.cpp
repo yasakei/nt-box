@@ -8,6 +8,7 @@
     #include <windows.h>
 #else
     #include <unistd.h>
+    #include <limits.h>
 #endif
 
 namespace box {
@@ -118,6 +119,32 @@ std::string Builder::findNativeShim() {
     candidates.push_back("nt-box/src/native_shim.cpp");
     candidates.push_back("../nt-box/src/native_shim.cpp");
     
+    // Check relative to box binary location (for installed systems)
+    // This handles the case where box is in /usr/local/bin and nt-box is in /usr/local/bin/nt-box
+#ifdef _WIN32
+    char exePath[MAX_PATH];
+    if (GetModuleFileNameA(NULL, exePath, MAX_PATH) != 0) {
+        std::string exeDir = std::string(exePath);
+        size_t lastSlash = exeDir.find_last_of("\\/");
+        if (lastSlash != std::string::npos) {
+            exeDir = exeDir.substr(0, lastSlash);
+            candidates.push_back(exeDir + "\\nt-box\\src\\native_shim.cpp");
+        }
+    }
+#else
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    if (len != -1) {
+        exePath[len] = '\0';
+        std::string exeDir = std::string(exePath);
+        size_t lastSlash = exeDir.find_last_of('/');
+        if (lastSlash != std::string::npos) {
+            exeDir = exeDir.substr(0, lastSlash);
+            candidates.push_back(exeDir + "/nt-box/src/native_shim.cpp");
+        }
+    }
+#endif
+    
     // Check in Neutron installation directory
     std::string neutronDir = findNeutronDir();
     if (!neutronDir.empty()) {
@@ -129,6 +156,7 @@ std::string Builder::findNativeShim() {
     candidates.push_back("C:\\Program Files\\Neutron\\nt-box\\src\\native_shim.cpp");
     candidates.push_back("C:\\Neutron\\nt-box\\src\\native_shim.cpp");
 #else
+    candidates.push_back("/usr/local/bin/nt-box/src/native_shim.cpp");
     candidates.push_back("/usr/local/neutron/nt-box/src/native_shim.cpp");
     candidates.push_back("/opt/neutron/nt-box/src/native_shim.cpp");
 #endif
