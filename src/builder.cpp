@@ -261,6 +261,10 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
         command = compiler + " ";
         command += "-std=c++17 ";
         command += "-fPIC -shared ";
+        
+        // Define __declspec as no-op for cross-platform compatibility
+        // This allows modules written for Windows to compile on Linux/macOS
+        command += "-D\"__declspec(x)=\" ";
 
         // Add include paths
         for (const auto& path : includePaths) {
