@@ -2,6 +2,7 @@
 #include "registry.h"
 #include "installer.h"
 #include "builder.h"
+#include "version.h"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -60,7 +61,7 @@ std::map<std::string, std::string> parseQuarkDependencies(const std::string& pat
 }
 
 void printUsage() {
-    std::cout << "Box - Neutron Package Manager v1.0.0\n" << std::endl;
+    std::cout << box::Version::getFullVersion() << " - Neutron Package Manager\n" << std::endl;
     std::cout << "Usage: box <command> [options]\n" << std::endl;
     std::cout << "Commands:\n" << std::endl;
     std::cout << "  Installation:" << std::endl;
@@ -85,7 +86,8 @@ void printUsage() {
 }
 
 void printVersion() {
-    std::cout << "Box Package Manager v1.0.0" << std::endl;
+    std::cout << box::Version::getFullVersion() << std::endl;
+    std::cout << "Build: " << box::Version::getBuildDate() << std::endl;
     std::cout << "Platform: " << Platform::getOSString() << std::endl;
     std::cout << "Library Extension: " << Platform::getLibraryExtension() << std::endl;
 }
