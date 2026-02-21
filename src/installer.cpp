@@ -20,6 +20,13 @@
 
 namespace box {
 
+const char* COLOR_GREEN = "\033[32m";
+const char* COLOR_BLUE = "\033[34m";
+const char* COLOR_YELLOW = "\033[33m";
+const char* COLOR_RED = "\033[31m";
+const char* COLOR_RESET = "\033[0m";
+const char* COLOR_BOLD = "\033[1m";
+
 Installer::Installer() {
     std::string homeDir;
 #ifdef _WIN32
@@ -56,17 +63,21 @@ bool Installer::ensureDirectory(const std::string& path) {
 bool Installer::install(const std::string& moduleSpec, bool global) {
     std::string moduleName = moduleSpec;
     std::string requestedVersion = "";
-    
+
     size_t atPos = moduleSpec.find('@');
     if (atPos != std::string::npos) {
         moduleName = moduleSpec.substr(0, atPos);
         requestedVersion = moduleSpec.substr(atPos + 1);
     }
-    
-    std::cout << "Installing " << moduleName;
-    if (!requestedVersion.empty()) std::cout << "@" << requestedVersion;
-    std::cout << "..." << std::endl;
-    
+
+    // npm-style install header
+    std::cout << std::endl;
+    std::cout << COLOR_BOLD << "Installing " << COLOR_RESET << moduleName;
+    if (!requestedVersion.empty()) {
+        std::cout << COLOR_BLUE << "@" << COLOR_RESET << COLOR_BOLD << requestedVersion << COLOR_RESET;
+    }
+    std::cout << std::endl << std::endl;
+
     if (!registry.fetchIndex()) {
         std::cerr << "Failed to fetch registry index" << std::endl;
         return false;
@@ -238,7 +249,9 @@ bool Installer::install(const std::string& moduleSpec, bool global) {
         metaFile.close();
     }
     
-    std::cout << "✓ Installed " << moduleName << "@" << versionToInstall << " to " << installDir << std::endl;
+    std::cout << "✓ Installed " << moduleName << COLOR_BLUE << "@" << versionToInstall << COLOR_RESET << std::endl;
+    std::cout << "  " << COLOR_BOLD << "Location:" << COLOR_RESET << " " << installDir << std::endl;
+    std::cout << std::endl;
     
     // If we are in a Neutron project (local install), register the dependency in .quark
     if (!global) {
