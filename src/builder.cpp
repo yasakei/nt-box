@@ -131,9 +131,9 @@ std::string Builder::findNativeShim() {
     // First check relative to current directory (for development)
     candidates.push_back("nt-box/src/native_shim.cpp");
     candidates.push_back("../nt-box/src/native_shim.cpp");
+    candidates.push_back("../../nt-box/src/native_shim.cpp");
     
     // Check relative to box binary location (for installed systems)
-    // This handles the case where box is in /usr/local/bin and nt-box is in /usr/local/bin/nt-box
 #ifdef _WIN32
     char exePath[MAX_PATH];
     if (GetModuleFileNameA(NULL, exePath, MAX_PATH) != 0) {
@@ -142,6 +142,10 @@ std::string Builder::findNativeShim() {
         if (lastSlash != std::string::npos) {
             exeDir = exeDir.substr(0, lastSlash);
             candidates.push_back(exeDir + "\\nt-box\\src\\native_shim.cpp");
+            candidates.push_back(exeDir + "\\..\\nt-box\\src\\native_shim.cpp");
+            candidates.push_back(exeDir + "\\..\\..\\nt-box\\src\\native_shim.cpp");
+            candidates.push_back(exeDir + "\\src\\native_shim.cpp");
+            candidates.push_back(exeDir + "\\..\\src\\native_shim.cpp");
         }
     }
 #else
@@ -154,6 +158,10 @@ std::string Builder::findNativeShim() {
         if (lastSlash != std::string::npos) {
             exeDir = exeDir.substr(0, lastSlash);
             candidates.push_back(exeDir + "/nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../../nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../src/native_shim.cpp");
         }
     }
 #endif
@@ -301,6 +309,9 @@ std::string Builder::generateBuildCommand(const std::string& moduleName,
 }
 
 bool Builder::executeCommand(const std::string& command) {
+    if (command.empty()) {
+        return false;
+    }
     #ifdef _WIN32
     if (command.find("cl ") == 0 || command.find("cl.exe") != std::string::npos) {
         // Check if cl.exe is in PATH
