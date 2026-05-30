@@ -6,6 +6,10 @@
 
 #ifdef _WIN32
     #include <windows.h>
+#elif defined(__APPLE__)
+    #include <mach-o/dyld.h>
+    #include <limits.h>
+    #include <unistd.h>
 #else
     #include <unistd.h>
     #include <limits.h>
@@ -146,6 +150,21 @@ std::string Builder::findNativeShim() {
             candidates.push_back(exeDir + "\\..\\..\\nt-box\\src\\native_shim.cpp");
             candidates.push_back(exeDir + "\\src\\native_shim.cpp");
             candidates.push_back(exeDir + "\\..\\src\\native_shim.cpp");
+        }
+    }
+#elif defined(__APPLE__)
+    char exePath[PATH_MAX];
+    uint32_t size = sizeof(exePath);
+    if (_NSGetExecutablePath(exePath, &size) == 0) {
+        std::string exeDir = std::string(exePath);
+        size_t lastSlash = exeDir.find_last_of('/');
+        if (lastSlash != std::string::npos) {
+            exeDir = exeDir.substr(0, lastSlash);
+            candidates.push_back(exeDir + "/nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../../nt-box/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/src/native_shim.cpp");
+            candidates.push_back(exeDir + "/../src/native_shim.cpp");
         }
     }
 #else
