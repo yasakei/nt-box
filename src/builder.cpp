@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cstdlib>
 #include <fstream>
+#include <filesystem>
 
 #ifdef _WIN32
     #include <windows.h>
@@ -129,9 +130,29 @@ std::string Builder::findNeutronDir() {
 }
 
 std::string Builder::findNativeShim() {
+    // New behavior:
+    // 1. Check NT_BOX_SRC environment variable.
+    // 2. Check relative to project root /home/yasakei/neutron or deps/nt-box/src.
+    // 3. Fallback to existing binary path resolution logic.
+    if (const char* env_src = std::getenv("NT_BOX_SRC")) {
+        std::string env_path = std::string(env_src) + "/native_shim.cpp";
+        std::ifstream test(env_path);
+        if (test.good()) {
+            std::error_code ec;
+            std::filesystem::path absPath = std::filesystem::absolute(env_path, ec);
+            if (!ec) {
+                return absPath.string();
+            }
+            return env_path;
+        }
+    }
+
     // Check standard locations for native_shim.cpp
     std::vector<std::string> candidates;
     
+    // First attempt: Resolve relative to project root or deps directory
+    candidates.push_back("deps/nt-box/src/native_shim.cpp");
+
     // First check relative to current directory (for development)
     candidates.push_back("nt-box/src/native_shim.cpp");
     candidates.push_back("../nt-box/src/native_shim.cpp");
@@ -141,7 +162,10 @@ std::string Builder::findNativeShim() {
 #ifdef _WIN32
     char exePath[MAX_PATH];
     if (GetModuleFileNameA(NULL, exePath, MAX_PATH) != 0) {
-        std::string exeDir = std::string(exePath);
+        std::error_code ec;
+        std::filesystem::path realPath = std::filesystem::canonical(exePath, ec);
+        std::string exeDir = ec ? std::string(exePath) : realPath.string();
+        
         size_t lastSlash = exeDir.find_last_of("\\/");
         if (lastSlash != std::string::npos) {
             exeDir = exeDir.substr(0, lastSlash);
@@ -204,6 +228,11 @@ std::string Builder::findNativeShim() {
     for (const auto& path : candidates) {
         std::ifstream test(path);
         if (test.good()) {
+            std::error_code ec;
+            std::filesystem::path absPath = std::filesystem::absolute(path, ec);
+            if (!ec) {
+                return absPath.string();
+            }
             return path;
         }
     }

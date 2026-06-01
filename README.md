@@ -41,6 +41,10 @@ cmake --build build
 - `box uninstall <module>` - Remove module
 - `box help` - Show help
 
+## Environment Variables
+
+- `NT_BOX_SRC`: Override the path to `native_shim.cpp` during native module building. Ensure this directory contains `native_shim.cpp`.
+
 ## Documentation
 
 See [docs/](./docs/) for full documentation.
