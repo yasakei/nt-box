@@ -220,7 +220,7 @@ std::string Builder::findNativeShim() {
     candidates.push_back("C:\\Program Files\\Neutron\\nt-box\\src\\native_shim.cpp");
     candidates.push_back("C:\\Neutron\\nt-box\\src\\native_shim.cpp");
 #else
-    candidates.push_back("/usr/local/bin/nt-box/src/native_shim.cpp");
+    candidates.push_back("/usr/local/nt-box/src/native_shim.cpp");
     candidates.push_back("/usr/local/neutron/nt-box/src/native_shim.cpp");
     candidates.push_back("/opt/neutron/nt-box/src/native_shim.cpp");
 #endif
